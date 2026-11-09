@@ -1,130 +1,65 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import {
-  Home,
-  BookOpen,
-  Calendar,
-  ClipboardList,
-  User,
-} from 'lucide-react-native';
-import HomeStack from './HomeStack';
-import CourseStack from './CourseStack';
-import ScheduleStack from './ScheduleStack';
-import AssignmentStack from './AssignmentStack';
-import ProfileStack from './ProfileStack';
+import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { User } from 'firebase/auth';
+import { subscribeAuthState } from '../services/auth.service';
+import AuthStack from './AuthStack';
+import MainTabs from './MainTabs';
+import ChatScreen from '../screens/chat/ChatScreen';
 import { ROUTES } from './routes';
-import { RootTabParamList } from '../types/navigation';
-import { useAppStore } from '../store/useAppStore';
-import useNetworkStatus from '../hooks/useNetworkStatus';
-import OfflineBanner from '../components/common/OfflineBanner';
 import colors from '../theme/colors';
 
-const Tab = createBottomTabNavigator<RootTabParamList>();
+const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
-  const { initStore, assignments, pendingSyncIds, syncPendingActions } = useAppStore();
-  const { isOnline } = useNetworkStatus();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    initStore();
-  }, [initStore]);
+    // Lắng nghe trạng thái đăng nhập từ Firebase Auth
+    const unsubscribe = subscribeAuthState((user) => {
+      setCurrentUser(user);
+      setLoading(false);
+    });
 
-  const uncompletedCount = assignments.filter((a) => a.status === 'todo').length;
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <OfflineBanner
-        isOnline={isOnline}
-        pendingSyncCount={pendingSyncIds.length}
-        onSync={syncPendingActions}
-      />
-
-      <Tab.Navigator
-        initialRouteName={ROUTES.TAB_HOME}
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.textSecondary,
-          tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: '600',
-          },
-          tabBarStyle: {
-            height: 60,
-            paddingBottom: 6,
-            paddingTop: 6,
-            backgroundColor: colors.surface,
-            borderTopColor: colors.border,
-          },
-        }}
-      >
-        <Tab.Screen
-          name={ROUTES.TAB_HOME}
-          component={HomeStack}
-          options={{
-            title: 'Tổng quan',
-            tabBarIcon: ({ color, size }) => (
-              <Home color={color} size={size || 22} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name={ROUTES.TAB_COURSE}
-          component={CourseStack}
-          options={{
-            title: 'Môn học',
-            tabBarIcon: ({ color, size }) => (
-              <BookOpen color={color} size={size || 22} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name={ROUTES.TAB_SCHEDULE}
-          component={ScheduleStack}
-          options={{
-            title: 'Thời khóa biểu',
-            tabBarIcon: ({ color, size }) => (
-              <Calendar color={color} size={size || 22} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name={ROUTES.TAB_ASSIGNMENT}
-          component={AssignmentStack}
-          options={{
-            title: 'Bài tập',
-            tabBarIcon: ({ color, size }) => (
-              <ClipboardList color={color} size={size || 22} />
-            ),
-            tabBarBadge: uncompletedCount > 0 ? uncompletedCount : undefined,
-            tabBarBadgeStyle: {
-              backgroundColor: colors.danger,
-              color: colors.white,
-              fontSize: 10,
-              fontWeight: 'bold',
-            },
-          }}
-        />
-        <Tab.Screen
-          name={ROUTES.TAB_PROFILE}
-          component={ProfileStack}
-          options={{
-            title: 'Cá nhân',
-            tabBarIcon: ({ color, size }) => (
-              <User color={color} size={size || 22} />
-            ),
-          }}
-        />
-      </Tab.Navigator>
-    </SafeAreaView>
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {currentUser ? (
+        // Đã đăng nhập: hiển thị MainTabs và ChatScreen
+        <>
+          <Stack.Screen name="MainTabs" component={MainTabs} />
+          <Stack.Screen
+            name={ROUTES.CHAT}
+            component={ChatScreen}
+            options={{
+              headerShown: false, // Custom Header sẽ được làm trong ChatScreen
+            }}
+          />
+        </>
+      ) : (
+        // Chưa đăng nhập: hiển thị AuthStack
+        <Stack.Screen name="AuthStack" component={AuthStack} />
+      )}
+    </Stack.Navigator>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  loadingContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: colors.background,
   },
 });

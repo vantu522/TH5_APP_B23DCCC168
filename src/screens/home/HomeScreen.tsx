@@ -1,418 +1,430 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  BookOpen,
-  Clock,
-  ChevronRight,
-  AlertCircle,
-} from 'lucide-react-native';
-import { useAppStore } from '../../store/useAppStore';
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  Image,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  TextInput,
+} from 'react-native';
+import { MessageCircle, Search, X, Plus } from 'lucide-react-native';
+import { auth } from '../../services/firebase';
+import { subscribeUserConversations } from '../../services/chat.service';
+import { UserProfile } from '../../types';
 import { ROUTES } from '../../navigation/routes';
-import ScreenContainer from '../../components/common/ScreenContainer';
-import EmptyState from '../../components/common/EmptyState';
-import LoadingView from '../../components/common/LoadingView';
-import ErrorView from '../../components/common/ErrorView';
-import LastUpdatedText from '../../components/common/LastUpdatedText';
-import { formatDate } from '../../utils/date';
+import { formatConversationTime } from '../../utils/time';
 import colors from '../../theme/colors';
-import spacing from '../../theme/spacing';
+
+interface ConversationData {
+  otherUid: string;
+  chatId: string;
+  otherUser: UserProfile;
+  lastMessage: string;
+  lastMessageTime: number;
+  unreadCount: number;
+}
 
 export default function HomeScreen({ navigation }: any) {
-  const {
-    student,
-    courses,
-    assignments,
-    fetchStudent,
-    fetchCourses,
-    fetchAssignments,
-    pendingSyncIds,
-    lastSavedAt,
-    isOnline,
-  } = useAppStore();
-
+  const [conversations, setConversations] = useState<ConversationData[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-
-  const pendingSyncCount = pendingSyncIds.length;
-
-  const loadData = async () => {
-    try {
-      setError(null);
-      await Promise.all([fetchStudent('1'), fetchCourses(), fetchAssignments()]);
-    } catch {
-      if (!student && courses.length === 0) {
-        setError('Không thể tải dữ liệu trang chủ.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
-    loadData();
+    const currentUid = auth.currentUser?.uid;
+    if (!currentUid) {
+      setLoading(false);
+      return;
+    }
+
+    // Lắng nghe danh sách cuộc trò chuyện theo thời gian thực
+    const unsubscribe = subscribeUserConversations(
+      currentUid,
+      (data) => {
+        setConversations(data);
+        setLoading(false);
+        setRefreshing(false);
+      },
+      (err) => {
+        console.warn('Lỗi tải cuộc trò chuyện:', err);
+        setLoading(false);
+        setRefreshing(false);
+      }
+    );
+
+    // Hủy lắng nghe trong cleanup của useEffect để tránh lặp lại
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
-  const onRefresh = async () => {
+  const onRefresh = () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    setTimeout(() => setRefreshing(false), 800);
   };
 
-  if (loading && !student && courses.length === 0) {
-    return <LoadingView message="Đang nạp dữ liệu trang chủ..." />;
-  }
+  // Lọc tìm kiếm theo tên người chat hoặc nội dung tin nhắn cuối
+  const filteredConversations = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return conversations;
 
-  if (error && !student && courses.length === 0) {
-    return (
-      <ErrorView
-        message={error}
-        onRetry={() => {
-          setLoading(true);
-          loadData();
-        }}
-      />
+    return conversations.filter(
+      (c) =>
+        c.otherUser?.fullName?.toLowerCase().includes(query) ||
+        c.lastMessage?.toLowerCase().includes(query)
     );
-  }
+  }, [conversations, searchQuery]);
 
-  // Lọc bài tập đến hạn trong 7 ngày tới
-  const now = new Date();
-  const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const handleOpenChat = (item: ConversationData) => {
+    navigation.navigate(ROUTES.CHAT, { receiver: item.otherUser });
+  };
 
-  const upcomingAssignments = assignments.filter((item) => {
-    if (!item.dueDate) return false;
-    const due = new Date(item.dueDate);
-    return due >= now && due <= sevenDaysLater;
-  });
+  const renderConversationItem = ({ item }: { item: ConversationData }) => {
+    const hasUnread = item.unreadCount > 0;
+    const isOnline = item.otherUser?.status === 'online';
 
-  const isStudentPendingSync = pendingSyncIds.some((id) => id === '1' || id === student?.id);
-
-  return (
-    <ScreenContainer
-      scrollable
-      refreshing={refreshing}
-      onRefresh={onRefresh}
-    >
-      {/* Banner thông tin sinh viên */}
-      <View style={styles.headerCard}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {student?.fullName ? student.fullName.charAt(0).toUpperCase() : 'S'}
-          </Text>
+    return (
+      <TouchableOpacity
+        style={[
+          styles.conversationCard,
+          hasUnread && styles.conversationCardUnread,
+        ]}
+        onPress={() => handleOpenChat(item)}
+        activeOpacity={0.7}
+      >
+        {/* Avatar kèm chấm Online */}
+        <View style={styles.avatarContainer}>
+          <Image
+            source={{
+              uri:
+                item.otherUser?.avatarUrl ||
+                `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                  item.otherUser?.fullName || 'User'
+                )}&background=2563EB&color=fff&size=96`,
+            }}
+            style={styles.avatar}
+          />
+          <View
+            style={[
+              styles.statusDot,
+              isOnline ? styles.dotOnline : styles.dotOffline,
+            ]}
+          />
         </View>
-        <View style={styles.headerInfo}>
-          <View style={styles.nameRow}>
-            <Text style={styles.studentName}>
-              {student?.fullName || 'Đang tải thông tin...'}
+
+        {/* Thông tin cuộc trò chuyện */}
+        <View style={styles.contentContainer}>
+          <View style={styles.topRow}>
+            <Text
+              style={[
+                styles.userName,
+                hasUnread && styles.userNameBold,
+              ]}
+              numberOfLines={1}
+            >
+              {item.otherUser?.fullName || 'Người dùng'}
             </Text>
-            {isStudentPendingSync && (
-              <View style={styles.profilePendingBadge}>
-                <Text style={styles.profilePendingText}>Chưa đồng bộ</Text>
+            <Text
+              style={[
+                styles.timeText,
+                hasUnread && styles.timeTextHighlight,
+              ]}
+            >
+              {formatConversationTime(item.lastMessageTime)}
+            </Text>
+          </View>
+
+          <View style={styles.bottomRow}>
+            <Text
+              style={[
+                styles.lastMessageText,
+                hasUnread ? styles.lastMessageUnread : styles.lastMessageRead,
+              ]}
+              numberOfLines={1}
+            >
+              {item.lastMessage || 'Bắt đầu cuộc trò chuyện'}
+            </Text>
+
+            {/* Huy hiệu số tin chưa đọc */}
+            {hasUnread && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>
+                  {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                </Text>
               </View>
             )}
           </View>
-          <Text style={styles.studentCode}>
-            Mã SV: {student?.studentCode || '---'} • Lớp: {student?.className || '---'}
-          </Text>
-          <Text style={styles.studentMajor}>{student?.major || ''}</Text>
         </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Đang tải cuộc trò chuyện...</Text>
       </View>
+    );
+  }
 
-      {/* Thẻ thống kê số thay đổi chưa đồng bộ và trạng thái Cache */}
-      <View style={styles.statusRow}>
-        <View style={styles.statusBox}>
-          <Text style={styles.statusBoxLabel}>Thay đổi chưa đồng bộ</Text>
-          <Text
-            style={[
-              styles.statusBoxValue,
-              pendingSyncCount > 0 ? styles.valueWarning : styles.valueSuccess,
-            ]}
-          >
-            {pendingSyncCount}
-          </Text>
-        </View>
-
-        <View style={styles.statusBox}>
-          <Text style={styles.statusBoxLabel}>Trạng thái kết nối</Text>
-          <Text
-            style={[
-              styles.statusBoxValue,
-              isOnline ? styles.valueSuccess : styles.valueDanger,
-            ]}
-          >
-            {isOnline ? 'Online (Mock API)' : 'Offline (Cache)'}
-          </Text>
-        </View>
-      </View>
-
-      {/* B2: Khi offline, hiển thị dòng "Cập nhật lần cuối: 14:32, 26/10/2026" */}
-      {!isOnline && (
-        <View style={styles.lastUpdatedBox}>
-          <LastUpdatedText timestamp={lastSavedAt.student || lastSavedAt.courses} />
+  return (
+    <View style={styles.container}>
+      {/* Ô tìm kiếm cuộc trò chuyện */}
+      {conversations.length > 0 && (
+        <View style={styles.searchHeader}>
+          <View style={styles.searchBox}>
+            <Search size={18} color={colors.textSecondary} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Tìm cuộc trò chuyện..."
+              placeholderTextColor={colors.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <X size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       )}
 
-      {/* Danh sách môn đang học */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <BookOpen size={18} color={colors.textSecondary} />
-          <Text style={styles.sectionTitle}> Môn đang học ({courses.length})</Text>
-        </View>
-        {courses.length === 0 ? (
-          <EmptyState message="Chưa có môn học nào" />
-        ) : (
-          courses.map((course) => (
-            <TouchableOpacity
-              key={course.id}
-              style={styles.cardItem}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate(ROUTES.COURSE_DETAIL, { id: course.id })}
-            >
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{course.code}</Text>
-              </View>
-              <View style={styles.cardContent}>
-                <Text style={styles.cardTitle}>{course.name}</Text>
-                <Text style={styles.cardSub}>
-                  {course.credits} tín chỉ • Giảng viên: {course.lecturer}
-                </Text>
-              </View>
-              <ChevronRight size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-          ))
-        )}
-      </View>
-
-      {/* Bài tập đến hạn trong 7 ngày tới */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Clock size={18} color={colors.textSecondary} />
-          <Text style={styles.sectionTitle}>
-            {' '}Bài tập đến hạn trong 7 ngày ({upcomingAssignments.length})
-          </Text>
-        </View>
-        {upcomingAssignments.length === 0 ? (
-          <EmptyState
-            message="Không có bài tập nào đến hạn trong 7 ngày tới"
+      {/* Danh sách cuộc trò chuyện */}
+      <FlatList
+        data={filteredConversations}
+        keyExtractor={(item) => item.chatId}
+        renderItem={renderConversationItem}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
           />
-        ) : (
-          upcomingAssignments.map((assignment) => {
-            const isPending =
-              pendingSyncIds.includes(assignment.id) || assignment.id.startsWith('temp-');
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyIconCircle}>
+              <MessageCircle size={44} color={colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>Chưa có cuộc trò chuyện nào</Text>
+            <Text style={styles.emptySubtitle}>
+              Hãy sang tab Danh bạ và bắt đầu nhắn tin với bạn bè ngay!
+            </Text>
 
-            return (
-              <TouchableOpacity
-                key={assignment.id}
-                style={[styles.cardItem, isPending && styles.cardPendingItem]}
-                activeOpacity={0.7}
-                onPress={() =>
-                  navigation.navigate(ROUTES.ASSIGNMENT_DETAIL, { id: assignment.id })
-                }
-              >
-                <View
-                  style={[
-                    styles.statusIndicator,
-                    assignment.status === 'done' ? styles.statusDone : styles.statusTodo,
-                  ]}
-                />
-                <View style={styles.cardContent}>
-                  <View style={styles.assignmentTitleRow}>
-                    <Text style={styles.cardTitle}>{assignment.title}</Text>
-                    {isPending && (
-                      <View style={styles.itemPendingBadge}>
-                        <Text style={styles.itemPendingBadgeText}>Chưa đồng bộ</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.cardSub}>
-                    Hạn nộp: {formatDate(assignment.dueDate)}
-                  </Text>
-                </View>
-                <ChevronRight size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            );
-          })
-        )}
-      </View>
-    </ScreenContainer>
+            <TouchableOpacity
+              style={styles.startChatButton}
+              onPress={() => navigation.navigate(ROUTES.TAB_CONTACTS)}
+            >
+              <Plus size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.startChatText}>Bắt đầu nhắn tin</Text>
+            </TouchableOpacity>
+          </View>
+        }
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerCard: {
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  searchHeader: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 42,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+    paddingVertical: 0,
+  },
+  listContent: {
+    padding: 16,
+    flexGrow: 1,
+  },
+  conversationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  conversationCardUnread: {
+    backgroundColor: '#FFFFFF',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginRight: 14,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
+  statusDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  dotOnline: {
+    backgroundColor: colors.online,
+  },
+  dotOffline: {
+    backgroundColor: colors.offline,
+  },
+  contentContainer: {
+    flex: 1,
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    flex: 1,
+    marginRight: 8,
+  },
+  userNameBold: {
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  timeText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  timeTextHighlight: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  lastMessageText: {
+    fontSize: 14,
+    flex: 1,
+    marginRight: 8,
+  },
+  lastMessageRead: {
+    color: colors.textSecondary,
+  },
+  lastMessageUnread: {
+    color: colors.text,
+    fontWeight: '600',
+  },
+  unreadBadge: {
+    backgroundColor: colors.primary,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 24,
+  },
+  emptyIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  startChatButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.primary,
-    padding: spacing.xl,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-  },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.white,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.lg,
-  },
-  avatarText: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: colors.primary,
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  studentName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.white,
-    marginRight: 8,
-  },
-  profilePendingBadge: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  profilePendingText: {
-    color: '#b45309',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  studentCode: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.9)',
-    marginTop: 2,
-  },
-  studentMajor: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: 2,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    gap: spacing.md,
-  },
-  statusBox: {
-    flex: 1,
-    backgroundColor: colors.card,
-    padding: spacing.md,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
   },
-  statusBoxLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  statusBoxValue: {
+  startChatText: {
+    color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '700',
-  },
-  valueSuccess: {
-    color: colors.success,
-  },
-  valueWarning: {
-    color: colors.warning,
-  },
-  valueDanger: {
-    color: colors.danger,
-  },
-  lastUpdatedBox: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-  },
-  section: {
-    padding: spacing.lg,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
-  },
-  cardItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.card,
-    borderRadius: 10,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  cardPendingItem: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
-  },
-  badge: {
-    backgroundColor: colors.primaryLight,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginRight: spacing.md,
-  },
-  badgeText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: spacing.md,
-  },
-  statusTodo: {
-    backgroundColor: colors.warning,
-  },
-  statusDone: {
-    backgroundColor: colors.success,
-  },
-  cardContent: {
-    flex: 1,
-  },
-  assignmentTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  itemPendingBadge: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
-    borderWidth: 1,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  itemPendingBadgeText: {
-    fontSize: 10,
-    color: '#b45309',
     fontWeight: '600',
-  },
-  cardTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  cardSub: {
-    fontSize: 12,
-    color: colors.textSecondary,
   },
 });

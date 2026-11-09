@@ -1,40 +1,22 @@
 export const colors = {
-  primary: '#007bff',
-  primaryDark: '#0056b3',
-  primaryLight: '#e7f5ff',
-
-  secondary: '#6c757d',
-  secondaryLight: '#f1f3f5',
-
-  success: '#28a745',
-  successLight: '#d4edda',
-  successText: '#155724',
-
-  warning: '#f59f00',
-  warningLight: '#fff3cd',
-  warningText: '#856404',
-
-  danger: '#dc3545',
-  dangerLight: '#f8d7da',
-  dangerText: '#721c24',
-
-  info: '#17a2b8',
-  infoLight: '#d1ecf1',
-
-  background: '#f8f9fa',
-  card: '#ffffff',
-  surface: '#ffffff',
-
-  textPrimary: '#212529',
-  textSecondary: '#6c757d',
-  textMuted: '#adb5bd',
-  textLight: '#f8f9fa',
-  white: '#ffffff',
-  black: '#000000',
-
-  border: '#e9ecef',
-  borderInput: '#ced4da',
-  divider: '#f1f3f5',
+  primary: '#2563EB',       // Blue 600
+  primaryDark: '#1D4ED8',
+  primaryLight: '#DBEAFE',  // Blue 100
+  secondary: '#10B981',     // Green 500
+  background: '#F8FAFC',    // Slate 50
+  surface: '#FFFFFF',
+  text: '#0F172A',          // Slate 900
+  textSecondary: '#64748B', // Slate 500
+  textMuted: '#94A3B8',     // Slate 400
+  border: '#E2E8F0',        // Slate 200
+  error: '#EF4444',         // Red 500
+  errorBackground: '#FEE2E2',
+  online: '#22C55E',        // Green 500
+  offline: '#94A3B8',       // Gray 400
+  myMessage: '#2563EB',
+  myMessageText: '#FFFFFF',
+  otherMessage: '#E2E8F0',
+  otherMessageText: '#0F172A',
 };
 
 export default colors;
