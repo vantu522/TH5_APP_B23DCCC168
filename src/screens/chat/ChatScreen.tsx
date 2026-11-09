@@ -35,6 +35,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const [inputText, setInputText] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [sending, setSending] = useState<boolean>(false);
+  const [sendingLocation, setSendingLocation] = useState<boolean>(false);
   const [senderProfile, setSenderProfile] = useState<UserProfile | null>(null);
 
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
@@ -102,18 +103,34 @@ export default function ChatScreen({ route, navigation }: any) {
     };
   }, [currentUid, receiver?.uid]);
 
+  const getEffectiveSender = (): UserProfile => {
+    if (senderProfile) return senderProfile;
+    const user = auth.currentUser;
+    return {
+      uid: user?.uid || currentUid || 'sender',
+      fullName: user?.displayName || 'Tôi',
+      email: user?.email || '',
+      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        user?.displayName || 'User'
+      )}&background=2563EB&color=fff&size=96`,
+      status: 'online',
+      createdAt: Date.now(),
+    };
+  };
+
   // Xử lý gửi vị trí hiện tại
   const handleSendLocation = async () => {
-    if (!senderProfile || !receiver || sending) return;
-    setSending(true);
+    if (!receiver || sendingLocation) return;
+    setSendingLocation(true);
     try {
       const coords = await getCurrentLocation();
       const locationText = `📍 Vị trí của tôi: https://maps.google.com/?q=${coords.latitude},${coords.longitude}`;
-      await sendMessage(senderProfile, receiver, locationText);
+      const sender = getEffectiveSender();
+      await sendMessage(sender, receiver, locationText);
     } catch (err: any) {
       console.warn('Lỗi chia sẻ vị trí:', err);
     } finally {
-      setSending(false);
+      setSendingLocation(false);
     }
   };
 
@@ -121,13 +138,14 @@ export default function ChatScreen({ route, navigation }: any) {
   const handleSend = async () => {
     const textToSend = inputText.trim();
     // Yêu cầu: Không cho gửi tin rỗng!
-    if (!textToSend || !senderProfile || !receiver) return;
+    if (!textToSend || !receiver || sending) return;
 
     setInputText('');
     setSending(true);
 
     try {
-      await sendMessage(senderProfile, receiver, textToSend);
+      const sender = getEffectiveSender();
+      await sendMessage(sender, receiver, textToSend);
     } catch (error) {
       console.warn('Lỗi gửi tin nhắn:', error);
     } finally {
@@ -261,9 +279,13 @@ export default function ChatScreen({ route, navigation }: any) {
           <TouchableOpacity
             style={styles.locationButton}
             onPress={handleSendLocation}
-            disabled={sending}
+            disabled={sendingLocation}
           >
-            <MapPin size={20} color={colors.primary} />
+            {sendingLocation ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <MapPin size={20} color={colors.primary} />
+            )}
           </TouchableOpacity>
 
           <TextInput
