@@ -206,7 +206,7 @@ export default function NotificationsScreen() {
             <>
               <MapPin size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
               <Text style={styles.locationCheckText}>
-                Kiểm tra tọa độ GPS (@react-native-community/geolocation)
+                Kiểm tra tọa độ GPS 
               </Text>
             </>
           )}

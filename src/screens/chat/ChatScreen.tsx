@@ -124,7 +124,7 @@ export default function ChatScreen({ route, navigation }: any) {
     setSendingLocation(true);
     try {
       const coords = await getCurrentLocation();
-      const locationText = `📍 Vị trí của tôi: https://maps.google.com/?q=${coords.latitude},${coords.longitude}`;
+      const locationText = ` Vị trí của tôi: https://maps.google.com/?q=${coords.latitude},${coords.longitude}`;
       const sender = getEffectiveSender();
       await sendMessage(sender, receiver, locationText);
     } catch (err: any) {
